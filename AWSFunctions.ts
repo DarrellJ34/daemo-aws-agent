@@ -86,30 +86,26 @@ const FindOldFilesOutput = z.object({
   objects: z.array(OldObjectSchema),
 });
 
-// -------- NEW: Detect idle EC2 --------
 
-const DetectIdleEc2Input = z.object({
+const DetectIdleEc2Input = z.object({ // require
   maxInstances: z.number().int().min(1).max(200).optional().default(50),
 
   lookbackDays: z.number().int().min(1).max(30).optional().default(7),
 
-  // CloudWatch period; 3600 = 1 hour (good default for 7–30 days)
   periodSeconds: z.number().int().min(60).max(86400).optional().default(3600),
 
-  cpuThresholdPct: z.number().min(0).max(100).optional().default(2),
+  cpuThresholdPct: z.number().min(0).max(100).optional().default(2), // count idle as 2% or less of instance compute power
 
-  // Total NetworkIn+NetworkOut over the lookback window
   netTotalThresholdBytes: z
     .number()
     .int()
     .min(0)
     .optional()
-    .default(50 * 1024 * 1024), // 50MB
+    .default(50 * 1024 * 1024), 
 
   // Require enough datapoints to avoid false positives from missing metrics
   minDataPoints: z.number().int().min(1).max(1000).optional().default(24),
 
-  // If any of these tag keys exist on the instance, we do not mark it idle.
   excludeTagKeys: z
     .array(z.string().min(1))
     .optional()

@@ -64,9 +64,6 @@ function toIso(d?: Date): string | undefined {
   return d ? d.toISOString() : undefined;
 }
 
-/**
- * Lists running EC2 instances, capped. Read-only.
- */
 export async function listRunningInstancesCapped(
   maxInstances: number
 ): Promise<Ec2InstanceSummary[]> {
@@ -76,7 +73,6 @@ export async function listRunningInstancesCapped(
   while (items.length < maxInstances) {
     const remaining = maxInstances - items.length;
 
-    // EC2 DescribeInstances MaxResults must be 5..1000 if set
     const maxResults = Math.min(1000, Math.max(5, remaining));
 
     const resp: DescribeInstancesCommandOutput = await ec2.send(
@@ -115,7 +111,6 @@ export async function listRunningInstancesCapped(
 }
 
 function safeId(prefix: string, idx: number): string {
-  // CloudWatch query Id must start with a letter and be unique within the request.
   return `${prefix}${idx}`.toLowerCase();
 }
 
@@ -139,10 +134,6 @@ type MetricAgg = {
   netOutN?: number;
 };
 
-/**
- * Pulls EC2 utilization metrics in bulk using CloudWatch GetMetricData.
- * Per instance: CPUUtilization (Average), NetworkIn (Sum), NetworkOut (Sum)
- */
 export async function getIdleMetricsForInstances(
   instanceIds: string[],
   lookbackDays: number,
@@ -196,7 +187,7 @@ export async function getIdleMetricsForInstances(
     });
   });
 
-  const MAX_QUERIES_PER_CALL = 450; // keep headroom under CW limits
+  const MAX_QUERIES_PER_CALL = 450; 
   const chunks: MetricDataQuery[][] = [];
   for (let i = 0; i < queries.length; i += MAX_QUERIES_PER_CALL) {
     chunks.push(queries.slice(i, i + MAX_QUERIES_PER_CALL));
@@ -209,7 +200,6 @@ export async function getIdleMetricsForInstances(
     return aggByInstance[instanceId];
   }
 
-  // query Id -> instance index
   const indexToInstanceId = instanceIds;
 
   for (const chunk of chunks) {
@@ -229,13 +219,11 @@ export async function getIdleMetricsForInstances(
       for (const r of resp.MetricDataResults ?? []) {
         const qid = r.Id ?? "";
 
-        // r.Values is (number | undefined)[] in practice — make it explicit for strict TS
         const values = (r.Values ?? []).filter(
           (v: number | undefined): v is number =>
             typeof v === "number" && Number.isFinite(v)
         );
 
-        // qid pattern: cpu{i} | ni{i} | no{i}
         const m = qid.match(/^(cpu|ni|no)(\d+)$/);
         if (!m) continue;
 
@@ -278,11 +266,6 @@ export async function getIdleMetricsForInstances(
 
   return out;
 }
-
-/**
- * Deterministic classification: idle if CPU avg <= threshold and net total <= threshold,
- * with enough datapoints and not excluded by tags.
- */
 export function classifyIdle(
   inst: Ec2InstanceSummary,
   metrics: IdleMetrics,
