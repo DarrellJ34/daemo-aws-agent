@@ -14,11 +14,16 @@ import {
   listRunningInstancesCapped,
   getIdleMetricsForInstances,
   classifyIdle,
-  type Ec2InstanceSummary,
-  type IdleCandidate,
+  listEc2InstancesSimple,
+  type ec2InstanceSummary,
+  type idleCandidate,
 } from "./awsEc2Idle.js";
 
 const allowedBucketName = "daemo-agent-s3-darrell";
+
+// ----------------------------
+// S3 Schemas
+// ----------------------------
 
 const listFilesInputSchema = z.object({
   prefix: z.string().optional().default(""),
@@ -94,6 +99,30 @@ const findOldFilesOutputSchema = z.object({
   objects: z.array(oldObjectSchema),
 });
 
+// ----------------------------
+// EC2 Schemas
+// ----------------------------
+
+const listEc2InstancesInputSchema = z.object({
+  maxInstances: z.number().int().min(1).max(200).optional().default(50),
+  states: z.array(z.string().min(1)).optional().default(["running"]),
+});
+
+const ec2InstanceBasicSchema = z.object({
+  instanceId: z.string(),
+  name: z.string().optional(),
+  instanceType: z.string().optional(),
+  state: z.string().optional(),
+  launchTime: z.string().optional(),
+  availabilityZone: z.string().optional(),
+});
+
+const listEc2InstancesOutputSchema = z.object({
+  count: z.number().int().nonnegative(),
+  states: z.array(z.string()),
+  instances: z.array(ec2InstanceBasicSchema),
+});
+
 const detectIdleEc2InputSchema = z.object({
   lookbackDays: z.number().int().min(1).max(30).optional().default(7),
   maxInstances: z.number().int().min(1).max(200).optional().default(50),
@@ -125,6 +154,10 @@ const detectIdleEc2OutputSchema = z.object({
   candidates: z.array(idleInstanceSchema),
 });
 
+// ----------------------------
+// Friendly Error Messages
+// ----------------------------
+
 function formatAwsErrorMessage(error: any): string {
   const errorCode = error?.name || error?.Code || error?.code;
   const httpStatusCode = error?.$metadata?.httpStatusCode;
@@ -134,15 +167,23 @@ function formatAwsErrorMessage(error: any): string {
   }
 
   if (errorCode === "NoSuchKey") {
-    return "That file key does not exist. If you want, tell me the folder/prefix and I can list files to help you find it.";
+    return "That file key does not exist. Tell me the folder/prefix and I can list files to help you find it.";
   }
 
   if (errorCode === "NoSuchBucket") {
     return `That bucket does not exist or is not accessible. This agent is hard-locked to the bucket '${allowedBucketName}'.`;
   }
 
+  if (errorCode === "PermanentRedirect" || httpStatusCode === 301) {
+    return "AWS says this bucket must be accessed using a different regional endpoint. Double-check the bucket region matches AWS_REGION.";
+  }
+
   return `AWS error: ${errorCode ?? "UnknownError"}`;
 }
+
+// ----------------------------
+// Daemo Tools
+// ----------------------------
 
 export class AwsFunctions {
   @DaemoFunction({
@@ -158,13 +199,7 @@ export class AwsFunctions {
 
     try {
       const keys = await listS3Objects(allowedBucketName, prefix, limit);
-
-      return {
-        bucket: allowedBucketName,
-        prefix,
-        count: keys.length,
-        keys,
-      };
+      return { bucket: allowedBucketName, prefix, count: keys.length, keys };
     } catch (error: any) {
       throw new Error(formatAwsErrorMessage(error));
     }
@@ -200,13 +235,7 @@ export class AwsFunctions {
     const { key, content, contentType } = args;
 
     try {
-      const etag = await putTextObject(
-        allowedBucketName,
-        key,
-        content,
-        contentType
-      );
-
+      const etag = await putTextObject(allowedBucketName, key, content, contentType);
       return { bucket: allowedBucketName, key, etag };
     } catch (error: any) {
       throw new Error(formatAwsErrorMessage(error));
@@ -225,12 +254,7 @@ export class AwsFunctions {
     const { key, expiresInSeconds } = args;
 
     try {
-      const url = await createPresignedGetUrl(
-        allowedBucketName,
-        key,
-        expiresInSeconds
-      );
-
+      const url = await createPresignedGetUrl(allowedBucketName, key, expiresInSeconds);
       return { url, expiresInSeconds };
     } catch (error: any) {
       throw new Error(formatAwsErrorMessage(error));
@@ -248,7 +272,7 @@ export class AwsFunctions {
   ): Promise<z.infer<typeof findOldFilesOutputSchema>> {
     const { prefix, olderThanDays, minSizeBytes, maxResults } = args;
 
-    // Internal safety caps: keep the tool easy to use conversationally.
+    // Internal safety caps (keeps the tool conversational and fast).
     const pageSize = 250;
     const maxTotalObjects = 5000;
 
@@ -282,6 +306,25 @@ export class AwsFunctions {
 
   @DaemoFunction({
     description:
+      "Lists EC2 instances (basic info only). Use this when the user asks what EC2s exist or what is running. This does NOT perform idle detection.",
+    inputSchema: listEc2InstancesInputSchema,
+    outputSchema: listEc2InstancesOutputSchema,
+  })
+  async listEc2Instances(
+    args: z.infer<typeof listEc2InstancesInputSchema>
+  ): Promise<z.infer<typeof listEc2InstancesOutputSchema>> {
+    const { maxInstances, states } = args;
+
+    try {
+      const instances = await listEc2InstancesSimple(maxInstances, states);
+      return { count: instances.length, states, instances };
+    } catch (error: any) {
+      throw new Error(formatAwsErrorMessage(error));
+    }
+  }
+
+  @DaemoFunction({
+    description:
       "Detects likely-idle running EC2 instances over a lookback window. Returns stop candidates with evidence.",
     inputSchema: detectIdleEc2InputSchema,
     outputSchema: detectIdleEc2OutputSchema,
@@ -299,9 +342,7 @@ export class AwsFunctions {
     const excludeTagKeys = ["DoNotStop", "Critical"];
 
     try {
-      const instances: Ec2InstanceSummary[] =
-        await listRunningInstancesCapped(maxInstances);
-
+      const instances: ec2InstanceSummary[] = await listRunningInstancesCapped(maxInstances);
       const instanceIds = instances.map((instance) => instance.instanceId);
 
       const metricsByInstanceId = await getIdleMetricsForInstances(
@@ -310,7 +351,7 @@ export class AwsFunctions {
         periodSeconds
       );
 
-      const candidates: IdleCandidate[] = instances.map((instance) =>
+      const candidates: idleCandidate[] = instances.map((instance) =>
         classifyIdle(
           instance,
           metricsByInstanceId[instance.instanceId] ?? {},
