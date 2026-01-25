@@ -8,28 +8,28 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 function getRegion(): string {
-  const region = process.env.AWS_REGION; // note: Auth is done all through .env
+  const region = process.env.AWS_REGION;
   if (!region) throw new Error("Missing AWS_REGION in environment");
   return region;
 }
 
-const s3 = new S3Client({ region: getRegion() });
+const s3Client = new S3Client({ region: getRegion() });
 
-// 1 MB max object size 
-const MAX_OBJECT_BYTES = 1 * 1024 * 1024;
+// Hard safety limit for demo usage (1MB).
+const maxObjectBytes = 1 * 1024 * 1024;
 
-function assertMaxObjectSizeBytes(sizeBytes: number, key: string) {
-  if (sizeBytes > MAX_OBJECT_BYTES) {
+function assertMaxObjectSize(sizeBytes: number, key: string) {
+  if (sizeBytes > maxObjectBytes) {
     throw new Error(
-      `S3 object too large for key="${key}". Size=${sizeBytes} bytes. Max=${MAX_OBJECT_BYTES} bytes (1MB).`
+      `S3 object too large for key="${key}". Size=${sizeBytes} bytes. Max=${maxObjectBytes} bytes (1MB).`
     );
   }
 }
 
 export type S3ObjectMeta = {
   key: string;
-  size: number; // bytes
-  lastModified?: string; 
+  size: number;
+  lastModified?: string;
   storageClass?: string;
 };
 
@@ -41,8 +41,108 @@ export type OldObject = {
   storageClass?: string;
 };
 
-function toIso(d?: Date): string | undefined {
-  return d ? d.toISOString() : undefined;
+export type TextObject = {
+  bucket: string;
+  key: string;
+  content: string;
+  contentType?: string;
+};
+
+function toIso(date?: Date): string | undefined {
+  return date ? date.toISOString() : undefined;
+}
+
+async function streamToStringWithLimit(
+  body: any,
+  byteLimit: number
+): Promise<string> {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+
+  for await (const chunk of body as AsyncIterable<Uint8Array>) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+
+    if (totalBytes > byteLimit) {
+      throw new Error(`Downloaded content exceeded ${byteLimit} bytes limit.`);
+    }
+
+    chunks.push(buffer);
+  }
+
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+export async function listS3Objects(
+  bucket: string,
+  prefix: string,
+  maxKeys: number
+): Promise<string[]> {
+  const command = new ListObjectsV2Command({
+    Bucket: bucket,
+    Prefix: prefix || undefined,
+    MaxKeys: maxKeys,
+  });
+
+  const response = (await s3Client.send(command)) as ListObjectsV2CommandOutput;
+
+  const keys = (response.Contents ?? [])
+    .map((item) => item.Key)
+    .filter((key): key is string => typeof key === "string");
+
+  return keys;
+}
+
+export async function createPresignedGetUrl(
+  bucket: string,
+  key: string,
+  expiresInSeconds: number
+): Promise<string> {
+  const command = new GetObjectCommand({ Bucket: bucket, Key: key });
+  return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
+}
+
+export async function putTextObject(
+  bucket: string,
+  key: string,
+  content: string,
+  contentType: string
+): Promise<string | undefined> {
+  // Keeps costs + risk down for a demo agent.
+  const sizeBytes = Buffer.byteLength(content, "utf8");
+  assertMaxObjectSize(sizeBytes, key);
+
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: content,
+    ContentType: contentType,
+  });
+
+  const response = await s3Client.send(command);
+  return response.ETag;
+}
+
+export async function getTextObject(
+  bucket: string,
+  key: string
+): Promise<TextObject> {
+  const command = new GetObjectCommand({ Bucket: bucket, Key: key });
+  const response = await s3Client.send(command);
+
+  const body = response.Body;
+  if (!body) {
+    throw new Error(`S3 object had an empty body for key="${key}".`);
+  }
+
+  const content = await streamToStringWithLimit(body, maxObjectBytes);
+
+  return {
+    bucket,
+    key,
+    content,
+    contentType: response.ContentType,
+  };
 }
 
 export async function listS3ObjectsWithMetaCapped(
@@ -58,29 +158,29 @@ export async function listS3ObjectsWithMetaCapped(
     const remaining = maxTotalObjects - items.length;
     const maxKeysThisPage = Math.min(pageSize, remaining);
 
-    const cmd = new ListObjectsV2Command({
+    const command = new ListObjectsV2Command({
       Bucket: bucket,
       Prefix: prefix || undefined,
       MaxKeys: maxKeysThisPage,
       ContinuationToken: continuationToken,
     });
 
-    const resp = (await s3.send(cmd)) as ListObjectsV2CommandOutput;
+    const response = (await s3Client.send(command)) as ListObjectsV2CommandOutput;
 
-    const pageItems: S3ObjectMeta[] = (resp.Contents ?? [])
-      .map((o): S3ObjectMeta => ({
-        key: o.Key ?? "",
-        size: typeof o.Size === "number" ? o.Size : 0,
-        lastModified: toIso(o.LastModified),
-        storageClass: o.StorageClass,
+    const pageItems: S3ObjectMeta[] = (response.Contents ?? [])
+      .map((item): S3ObjectMeta => ({
+        key: item.Key ?? "",
+        size: typeof item.Size === "number" ? item.Size : 0,
+        lastModified: toIso(item.LastModified),
+        storageClass: item.StorageClass,
       }))
-      .filter((x): x is S3ObjectMeta => x.key.length > 0);
+      .filter((meta) => meta.key.length > 0);
 
     items.push(...pageItems);
 
-    if (!resp.IsTruncated) return { items, truncated: false };
+    if (!response.IsTruncated) return { items, truncated: false };
 
-    continuationToken = resp.NextContinuationToken;
+    continuationToken = response.NextContinuationToken;
     if (!continuationToken) break;
   }
 
@@ -107,80 +207,27 @@ export async function findOldObjects(
 
   const objects: OldObject[] = [];
 
-  for (const it of items) {
-    if (it.size < minSizeBytes) continue;
-    if (!it.lastModified) continue;
+  for (const item of items) {
+    if (item.size < minSizeBytes) continue;
+    if (!item.lastModified) continue;
 
-    const lmMs = new Date(it.lastModified).getTime();
-    if (!Number.isFinite(lmMs)) continue;
+    const lastModifiedMs = new Date(item.lastModified).getTime();
+    if (!Number.isFinite(lastModifiedMs)) continue;
 
-    const ageMs = nowMs - lmMs;
+    const ageMs = nowMs - lastModifiedMs;
     if (ageMs < cutoffMs) continue;
 
     objects.push({
-      key: it.key,
-      size: it.size,
-      lastModified: it.lastModified,
+      key: item.key,
+      size: item.size,
+      lastModified: item.lastModified,
       ageDays: Math.floor(ageMs / (24 * 60 * 60 * 1000)),
-      storageClass: it.storageClass,
+      storageClass: item.storageClass,
     });
   }
 
-  // biggest first
+  // Biggest first so the agent surfaces the most impactful candidates.
   objects.sort((a, b) => b.size - a.size);
 
   return { objects, scanned: items.length, truncated };
 }
-
-export async function listS3Objects(
-  bucket: string,
-  prefix: string,
-  maxKeys: number
-): Promise<string[]> {
-  const cmd = new ListObjectsV2Command({
-    Bucket: bucket,
-    Prefix: prefix || undefined,
-    MaxKeys: maxKeys,
-  });
-
-  const resp = (await s3.send(cmd)) as ListObjectsV2CommandOutput;
-
-  const keys = (resp.Contents ?? [])
-    .map((o) => o.Key)
-    .filter((k): k is string => typeof k === "string");
-
-  return keys;
-}
-
-export async function createPresignedGetUrl(
-  bucket: string,
-  key: string,
-  expiresInSeconds: number
-): Promise<string> {
-  const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
-  return await getSignedUrl(s3, cmd, { expiresIn: expiresInSeconds });
-}
-
-export async function putTextObject(
-  bucket: string,
-  key: string,
-  content: string,
-  contentType: string
-): Promise<string | undefined> {
-  // Enforce max size before uploading. this is for me due to limited AWS credits
-  const sizeBytes = Buffer.byteLength(content, "utf8");
-  assertMaxObjectSizeBytes(sizeBytes, key);
-
-  const cmd = new PutObjectCommand({
-    Bucket: bucket,
-    Key: key,
-    Body: content,
-    ContentType: contentType,
-  });
-
-  const resp = await s3.send(cmd);
-  return resp.ETag;
-}
-
-
-

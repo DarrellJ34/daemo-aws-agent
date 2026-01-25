@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "lib": ["ES2020"],
     "strict": true,
     "esModuleInterop": true,
@@ -12,6 +13,7 @@
     "emitDecoratorMetadata": true
   }
 }
+
 
 
 
