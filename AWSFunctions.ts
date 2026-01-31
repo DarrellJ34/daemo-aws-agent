@@ -19,6 +19,17 @@ import {
   type idleCandidate,
 } from "./awsEc2Idle.js";
 
+import {
+  listRdsInstancesSimple,
+  getRdsInstanceDetails,
+  listRdsSnapshotsSimple,
+  type rdsInstanceSummary,
+  type rdsInstanceDetails,
+  type rdsSnapshotSummary,
+} from "./awsRds.js";
+import { queryMysqlRds, type rdsQueryResult } from "./awsRdsQuery.js";
+import { getRdsCpuUtilization, type rdsCpuMetrics } from "./awsRdsMetrics.js";
+
 const allowedBucketName = "daemo-agent-s3-darrell";
 
 // ----------------------------
@@ -155,6 +166,100 @@ const detectIdleEc2OutputSchema = z.object({
 });
 
 // ----------------------------
+// RDS Schemas
+// ----------------------------
+
+const listRdsInstancesInputSchema = z.object({
+  maxInstances: z.number().int().min(1).max(100).optional().default(50),
+});
+
+const rdsInstanceSummarySchema = z.object({
+  dbInstanceIdentifier: z.string(),
+  engine: z.string().optional(),
+  engineVersion: z.string().optional(),
+  instanceClass: z.string().optional(),
+  status: z.string().optional(),
+  endpointAddress: z.string().optional(),
+  endpointPort: z.number().int().optional(),
+  availabilityZone: z.string().optional(),
+  publiclyAccessible: z.boolean().optional(),
+  storageEncrypted: z.boolean().optional(),
+  multiAz: z.boolean().optional(),
+  allocatedStorageGb: z.number().int().optional(),
+  dbName: z.string().optional(),
+});
+
+const listRdsInstancesOutputSchema = z.object({
+  count: z.number().int().nonnegative(),
+  instances: z.array(rdsInstanceSummarySchema),
+});
+
+const getRdsInstanceInputSchema = z.object({
+  dbInstanceIdentifier: z.string().min(1),
+});
+
+const rdsInstanceDetailsSchema = rdsInstanceSummarySchema.extend({
+  arn: z.string().optional(),
+  masterUsername: z.string().optional(),
+  vpcId: z.string().optional(),
+  subnetGroupName: z.string().optional(),
+  preferredMaintenanceWindow: z.string().optional(),
+  preferredBackupWindow: z.string().optional(),
+  backupRetentionPeriodDays: z.number().int().optional(),
+});
+
+const getRdsInstanceOutputSchema = rdsInstanceDetailsSchema;
+
+const listRdsSnapshotsInputSchema = z.object({
+  dbInstanceIdentifier: z.string().min(1).optional(),
+  maxSnapshots: z.number().int().min(1).max(100).optional().default(50),
+});
+
+const rdsSnapshotSummarySchema = z.object({
+  snapshotIdentifier: z.string().optional(),
+  dbInstanceIdentifier: z.string().optional(),
+  status: z.string().optional(),
+  snapshotType: z.string().optional(),
+  engine: z.string().optional(),
+  snapshotCreateTime: z.string().optional(),
+  allocatedStorageGb: z.number().int().optional(),
+});
+
+const listRdsSnapshotsOutputSchema = z.object({
+  count: z.number().int().nonnegative(),
+  dbInstanceIdentifier: z.string().optional(),
+  snapshots: z.array(rdsSnapshotSummarySchema),
+});
+
+const rdsCpuInputSchema = z.object({
+  dbInstanceIdentifier: z.string().min(1),
+  lookbackHours: z.number().int().min(1).max(168).optional().default(6),
+  periodSeconds: z.number().int().min(60).max(3600).optional().default(300),
+});
+
+const rdsCpuOutputSchema = z.object({
+  dbInstanceIdentifier: z.string(),
+  periodSeconds: z.number().int(),
+  datapoints: z.number().int().nonnegative(),
+  average: z.number().optional(),
+  minimum: z.number().optional(),
+  maximum: z.number().optional(),
+  latestTimestamp: z.string().optional(),
+  latestAverage: z.number().optional(),
+});
+
+const queryRdsInputSchema = z.object({
+  sql: z.string().min(1),
+  maxRows: z.number().int().min(1).max(500).optional().default(100),
+});
+
+const queryRdsOutputSchema = z.object({
+  rowCount: z.number().int().nonnegative(),
+  columns: z.array(z.string()),
+  rows: z.array(z.record(z.any())),
+});
+
+// ----------------------------
 // Friendly Error Messages
 // ----------------------------
 
@@ -174,8 +279,60 @@ function formatAwsErrorMessage(error: any): string {
     return `That bucket does not exist or is not accessible. This agent is hard-locked to the bucket '${allowedBucketName}'.`;
   }
 
+  if (errorCode === "DBInstanceNotFound") {
+    return "That RDS instance identifier does not exist or is not accessible.";
+  }
+
+  if (errorCode === "DBSnapshotNotFound") {
+    return "That RDS snapshot identifier does not exist or is not accessible.";
+  }
+
+  if (errorCode === "ER_ACCESS_DENIED_ERROR") {
+    return "MySQL access denied. Check RDS_USER and RDS_PASSWORD.";
+  }
+
+  if (errorCode === "ER_BAD_DB_ERROR") {
+    return "Unknown database. Check RDS_DB or remove it to use the default.";
+  }
+
+  if (errorCode === "ENOTFOUND") {
+    return "RDS host not found. Check RDS_HOST and the instance endpoint.";
+  }
+
+  if (errorCode === "ECONNREFUSED") {
+    return "Connection refused. Check the RDS security group inbound rule for port 3306.";
+  }
+
+  if (errorCode === "ETIMEDOUT") {
+    return "Connection timed out. The RDS instance may not be reachable from this network/VPC.";
+  }
+
+  if (errorCode === "EHOSTUNREACH") {
+    return "Host unreachable. The RDS instance may be in a private VPC.";
+  }
+
+  if (errorCode === "OnlyReadQueriesAllowed") {
+    return "Only read-only SQL queries are allowed (SELECT/SHOW/DESCRIBE).";
+  }
+
+  if (errorCode === "Missing RDS_HOST") {
+    return "Missing RDS_HOST environment variable.";
+  }
+
+  if (errorCode === "Missing RDS_USER") {
+    return "Missing RDS_USER environment variable.";
+  }
+
+  if (errorCode === "Missing RDS_PASSWORD") {
+    return "Missing RDS_PASSWORD environment variable.";
+  }
+
   if (errorCode === "PermanentRedirect" || httpStatusCode === 301) {
     return "AWS says this bucket must be accessed using a different regional endpoint. Double-check the bucket region matches AWS_REGION.";
+  }
+
+  if (error?.message && error?.message !== "Error") {
+    return error.message;
   }
 
   return `AWS error: ${errorCode ?? "UnknownError"}`;
@@ -382,6 +539,108 @@ export class AwsFunctions {
       });
 
       return { scanned: candidates.length, candidates };
+    } catch (error: any) {
+      throw new Error(formatAwsErrorMessage(error));
+    }
+  }
+
+  @DaemoFunction({
+    description:
+      "Lists RDS DB instances (basic info). Use when the user asks what databases exist or are available.",
+    inputSchema: listRdsInstancesInputSchema,
+    outputSchema: listRdsInstancesOutputSchema,
+  })
+  async listRdsInstances(
+    args: z.infer<typeof listRdsInstancesInputSchema>
+  ): Promise<z.infer<typeof listRdsInstancesOutputSchema>> {
+    const { maxInstances } = args;
+
+    try {
+      const instances: rdsInstanceSummary[] = await listRdsInstancesSimple(maxInstances);
+      return { count: instances.length, instances };
+    } catch (error: any) {
+      throw new Error(formatAwsErrorMessage(error));
+    }
+  }
+
+  @DaemoFunction({
+    description:
+      "Gets details for a specific RDS DB instance by identifier.",
+    inputSchema: getRdsInstanceInputSchema,
+    outputSchema: getRdsInstanceOutputSchema,
+  })
+  async getRdsInstance(
+    args: z.infer<typeof getRdsInstanceInputSchema>
+  ): Promise<z.infer<typeof getRdsInstanceOutputSchema>> {
+    const { dbInstanceIdentifier } = args;
+
+    try {
+      const details: rdsInstanceDetails = await getRdsInstanceDetails(dbInstanceIdentifier);
+      return details;
+    } catch (error: any) {
+      throw new Error(formatAwsErrorMessage(error));
+    }
+  }
+
+  @DaemoFunction({
+    description:
+      "Lists RDS DB snapshots, optionally filtered by instance identifier.",
+    inputSchema: listRdsSnapshotsInputSchema,
+    outputSchema: listRdsSnapshotsOutputSchema,
+  })
+  async listRdsSnapshots(
+    args: z.infer<typeof listRdsSnapshotsInputSchema>
+  ): Promise<z.infer<typeof listRdsSnapshotsOutputSchema>> {
+    const { dbInstanceIdentifier, maxSnapshots } = args;
+
+    try {
+      const snapshots: rdsSnapshotSummary[] = await listRdsSnapshotsSimple(
+        dbInstanceIdentifier,
+        maxSnapshots
+      );
+      return { count: snapshots.length, dbInstanceIdentifier, snapshots };
+    } catch (error: any) {
+      throw new Error(formatAwsErrorMessage(error));
+    }
+  }
+
+  @DaemoFunction({
+    description:
+      "Runs a read-only SQL query (SELECT/SHOW/DESCRIBE) against the configured MySQL RDS instance.",
+    inputSchema: queryRdsInputSchema,
+    outputSchema: queryRdsOutputSchema,
+  })
+  async queryRdsDatabase(
+    args: z.infer<typeof queryRdsInputSchema>
+  ): Promise<z.infer<typeof queryRdsOutputSchema>> {
+    const { sql, maxRows } = args;
+
+    try {
+      const result: rdsQueryResult = await queryMysqlRds(sql, maxRows);
+      return result;
+    } catch (error: any) {
+      throw new Error(formatAwsErrorMessage(error));
+    }
+  }
+
+  @DaemoFunction({
+    description:
+      "Gets RDS CPU utilization from CloudWatch for a DB instance over a lookback window.",
+    inputSchema: rdsCpuInputSchema,
+    outputSchema: rdsCpuOutputSchema,
+  })
+  async getRdsCpuUtilization(
+    args: z.infer<typeof rdsCpuInputSchema>
+  ): Promise<z.infer<typeof rdsCpuOutputSchema>> {
+    const { dbInstanceIdentifier, lookbackHours, periodSeconds } = args;
+
+    try {
+      const metrics: rdsCpuMetrics = await getRdsCpuUtilization(
+        dbInstanceIdentifier,
+        lookbackHours,
+        periodSeconds
+      );
+      return metrics;
     } catch (error: any) {
       throw new Error(formatAwsErrorMessage(error));
     }
