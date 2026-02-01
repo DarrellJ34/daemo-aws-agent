@@ -23,13 +23,89 @@
     return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
+  function escapeHtml(value) {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function inlineFormat(value) {
+    let formatted = value;
+    formatted = formatted.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    formatted = formatted.replace(/`([^`]+)`/g, "<code>$1</code>");
+    return formatted;
+  }
+
+  function renderMarkdown(text) {
+    const safe = escapeHtml(text);
+    const lines = safe.split(/\r?\n/);
+    const parts = [];
+    let inOl = false;
+    let inUl = false;
+
+    const closeLists = () => {
+      if (inOl) {
+        parts.push("</ol>");
+        inOl = false;
+      }
+      if (inUl) {
+        parts.push("</ul>");
+        inUl = false;
+      }
+    };
+
+    for (const line of lines) {
+      const olMatch = line.match(/^\s*(\d+)\.\s+(.*)$/);
+      const ulMatch = line.match(/^\s*[-*]\s+(.*)$/);
+
+      if (olMatch) {
+        if (!inOl) {
+          closeLists();
+          parts.push("<ol>");
+          inOl = true;
+        }
+        parts.push(`<li>${inlineFormat(olMatch[2])}</li>`);
+        continue;
+      }
+
+      if (ulMatch) {
+        if (!inUl) {
+          closeLists();
+          parts.push("<ul>");
+          inUl = true;
+        }
+        parts.push(`<li>${inlineFormat(ulMatch[1])}</li>`);
+        continue;
+      }
+
+      if (line.trim() === "") {
+        closeLists();
+        parts.push("<br>");
+        continue;
+      }
+
+      closeLists();
+      parts.push(`<p>${inlineFormat(line)}</p>`);
+    }
+
+    closeLists();
+    return parts.join("");
+  }
+
   function appendMessage(role, text, meta) {
     const row = document.createElement("div");
     row.className = `row ${role}`;
 
     const bubble = document.createElement("div");
     bubble.className = "bubble";
-    bubble.textContent = text;
+    if (role === "assistant") {
+      bubble.innerHTML = renderMarkdown(text);
+    } else {
+      bubble.textContent = text;
+    }
 
     if (meta) {
       const metaEl = document.createElement("div");
