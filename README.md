@@ -43,7 +43,6 @@ RDS_PORT="3306"
 RDS_SSL="true"
 
 Install
-cd /Users/darrelljustice/Desktop/Daemo
 npm install
 
 Run (hosted tools only)
