@@ -71,6 +71,7 @@ Notes / Safety
 Project layout
 - index.ts: starts the hosted Daemo connection (tools online)
 - AWSFunctions.ts: tool definitions exposed to the agent
-- src/web.ts: local web server + /api/chat
-- public/: static chat UI assets
+- src/web.ts: local web server + /api/chat<img width="1470" height="956" alt="Screenshot 2026-02-01 at 10 09 47 AM" src="https://github.com/user-attachments/assets/48ec4d8f<img width="1470" height="956" alt="Screenshot 2026-02-01 at 10 11 30 AM" src="https://github.com/user-attachments/assets/06988ceb-bb2a-4b57-b519-e8e08aa861ce" />
+-4388-46e1-9a04-bbfd62a93184" />
 
+- public/: static chat UI assets
