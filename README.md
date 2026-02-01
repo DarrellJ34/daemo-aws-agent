@@ -32,14 +32,20 @@ Create a .env file in the project root (do not commit it):
 
 DAEMO_AGENT_API_KEY="your_daemo_agent_api_key"
 DAEMO_GATEWAY_URL="http://localhost:50052"   (optional, if you use a non-default gateway URL)
-AWS_REGION="us-east-1"                      (typical)
+AWS_REGION="us-east-1" (example)
 
 RDS (optional, only if you use the RDS query tool)
+
 RDS_HOST="your-rds-endpoint.amazonaws.com"
+
 RDS_USER="readonly_user"
+
 RDS_PASSWORD="readonly_password"
+
 RDS_DB="optional_database"
+
 RDS_PORT="3306"
+
 RDS_SSL="true"
 
 Install
