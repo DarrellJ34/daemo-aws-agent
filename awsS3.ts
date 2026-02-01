@@ -15,16 +15,6 @@ function getRegion(): string {
 
 const s3Client = new S3Client({ region: getRegion() });
 
-// Hard safety limit for demo usage (1MB).
-const maxObjectBytes = 1 * 1024 * 1024;
-
-function assertMaxObjectSize(sizeBytes: number, key: string) {
-  if (sizeBytes > maxObjectBytes) {
-    throw new Error(
-      `S3 object too large for key="${key}". Size=${sizeBytes} bytes. Max=${maxObjectBytes} bytes (1MB).`
-    );
-  }
-}
 
 export type S3ObjectMeta = {
   key: string;
@@ -52,20 +42,11 @@ function toIso(date?: Date): string | undefined {
   return date ? date.toISOString() : undefined;
 }
 
-async function streamToStringWithLimit(
-  body: any,
-  byteLimit: number
-): Promise<string> {
+async function streamToString(body: any): Promise<string> {
   const chunks: Buffer[] = [];
-  let totalBytes = 0;
 
   for await (const chunk of body as AsyncIterable<Uint8Array>) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    totalBytes += buffer.length;
-
-    if (totalBytes > byteLimit) {
-      throw new Error(`Downloaded content exceeded ${byteLimit} bytes limit.`);
-    }
 
     chunks.push(buffer);
   }
@@ -108,10 +89,6 @@ export async function putTextObject(
   content: string,
   contentType: string
 ): Promise<string | undefined> {
-  // Keeps costs + risk down for a demo agent.
-  const sizeBytes = Buffer.byteLength(content, "utf8");
-  assertMaxObjectSize(sizeBytes, key);
-
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: key,
@@ -135,7 +112,7 @@ export async function getTextObject(
     throw new Error(`S3 object had an empty body for key="${key}".`);
   }
 
-  const content = await streamToStringWithLimit(body, maxObjectBytes);
+  const content = await streamToString(body);
 
   return {
     bucket,

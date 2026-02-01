@@ -415,7 +415,7 @@ export class AwsFunctions {
 
   @DaemoFunction({
     description:
-      "Reads a small text file (<=1MB) from an allowed S3 bucket by key.",
+      "Reads a text file from an allowed S3 bucket by key.",
     inputSchema: readTextInputSchema,
     outputSchema: readTextOutputSchema,
   })
@@ -434,7 +434,7 @@ export class AwsFunctions {
 
   @DaemoFunction({
     description:
-      "Writes a small text file (<=1MB) to an allowed S3 bucket at the given key.",
+      "Writes a text file to an allowed S3 bucket at the given key.",
     inputSchema: writeTextInputSchema,
     outputSchema: writeTextOutputSchema,
   })
