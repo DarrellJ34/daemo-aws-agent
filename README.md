@@ -1,3 +1,13 @@
+Overview:
+
+Daemo is an AI runtime that allows you to have AI Agents work with your
+databases and services in a more secure way
+
+read more about Daemo:
+https://docs.daemo.ai/docs/
+
+----------------------------------------------------
+
 Daemo AWS Agent
 
 An AWS operations assistant powered by daemo-engine.  
@@ -45,7 +55,7 @@ Core Config
 ```env
 DAEMO_AGENT_API_KEY="your_daemo_agent_api_key"
 DAEMO_GATEWAY_URL="http://localhost:50052"
-AWS_REGION="us-east-1"
+AWS_REGION="us-east-1" (can be a different region)
 ```
 
 RDS Config (only needed if using RDS query tool)
