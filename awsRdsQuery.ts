@@ -1,6 +1,17 @@
 import mysql from "mysql2/promise";
 
-const defaultPort = 3306;
+/*
+
+RDS acts as the database server for MySQL instances in AWS
+
+We can connect to the RDS instance using RDS Host, username, password, and port
+
+Can then plug in the RDS credentials into a SQL tool
+such as SQL Electron to then actually CRUD the database
+
+*/
+
+const defaultPort = 3306; // set in AWS
 
 function getRequiredEnv(name: string): string {
   const value = process.env[name];

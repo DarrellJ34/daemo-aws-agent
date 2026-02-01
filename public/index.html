@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Daemo Agent Chat</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="title">
+          <div class="name">AWS Agent</div>
+          <div class="sub">Local chat UI (browser) → `/api/chat`</div>
+        </div>
+        <button id="newThread" class="btn ghost" type="button" title="Start a new conversation">
+          New chat
+        </button>
+      </header>
+
+      <main class="chat" id="chat"></main>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <input
+          id="input"
+          class="input"
+          placeholder="Ask about S3, EC2, RDS…"
+          aria-label="Message"
+        />
+        <button class="btn" id="send" type="submit">Send</button>
+      </form>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
+
