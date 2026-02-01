@@ -43,7 +43,8 @@ RDS
 Prerequisites
 
 - Node.js 20+  
-- AWS credentials available to the process (env vars, shared config, SSO, etc.)  
+- AWS credentials available to the process (env vars, shared config, SSO, etc.)
+- Correct AWS policies to allow read/write 
 - A Daemo Agent API key  
 
 Configuration
