@@ -30,13 +30,26 @@ import {
 import { queryMysqlRds, type rdsQueryResult } from "./awsRdsQuery.js";
 import { getRdsCpuUtilization, type rdsCpuMetrics } from "./awsRdsMetrics.js";
 
-const allowedBucketName = "daemo-agent-s3-darrell";
+const defaultBucketName = "daemo-agent-s3-darrell";
+const allowedBuckets = (process.env.ALLOWED_BUCKETS ?? defaultBucketName)
+  .split(",")
+  .map((value) => value.trim())
+  .filter((value) => value.length > 0);
+
+function resolveBucket(requestedBucket?: string): string {
+  const bucket = (requestedBucket ?? allowedBuckets[0] ?? defaultBucketName).trim();
+  if (!allowedBuckets.includes(bucket)) {
+    throw new Error(`BucketNotAllowed:${bucket}`);
+  }
+  return bucket;
+}
 
 // ----------------------------
 // S3 Schemas
 // ----------------------------
 
 const listFilesInputSchema = z.object({
+  bucket: z.string().optional(),
   prefix: z.string().optional().default(""),
   limit: z.number().int().min(1).max(1000).optional().default(20),
 });
@@ -48,7 +61,15 @@ const listFilesOutputSchema = z.object({
   keys: z.array(z.string()),
 });
 
+const emptyInputSchema = z.object({});
+
+const listBucketsOutputSchema = z.object({
+  count: z.number().int().nonnegative(),
+  buckets: z.array(z.string()),
+});
+
 const readTextInputSchema = z.object({
+  bucket: z.string().optional(),
   key: z.string().min(1),
 });
 
@@ -60,6 +81,7 @@ const readTextOutputSchema = z.object({
 });
 
 const writeTextInputSchema = z.object({
+  bucket: z.string().optional(),
   key: z.string().min(1),
   content: z.string().min(1),
   contentType: z.string().optional().default("text/plain"),
@@ -72,6 +94,7 @@ const writeTextOutputSchema = z.object({
 });
 
 const presignDownloadInputSchema = z.object({
+  bucket: z.string().optional(),
   key: z.string().min(1),
   expiresInSeconds: z.number().int().min(60).max(3600).optional().default(900),
 });
@@ -82,6 +105,7 @@ const presignDownloadOutputSchema = z.object({
 });
 
 const findOldFilesInputSchema = z.object({
+  bucket: z.string().optional(),
   prefix: z.string().optional().default(""),
   olderThanDays: z.number().int().min(1).max(3650).optional().default(180),
   minSizeBytes: z.number().int().min(0).optional().default(1024),
@@ -276,7 +300,14 @@ function formatAwsErrorMessage(error: any): string {
   }
 
   if (errorCode === "NoSuchBucket") {
-    return `That bucket does not exist or is not accessible. This agent is hard-locked to the bucket '${allowedBucketName}'.`;
+    return `That bucket does not exist or is not accessible. Allowed buckets: ${allowedBuckets.join(
+      ", "
+    )}.`;
+  }
+
+  if (errorCode === "BucketNotAllowed") {
+    const requested = String(error?.message || "").split(":")[1] || "unknown";
+    return `Bucket '${requested}' is not allowed. Allowed buckets: ${allowedBuckets.join(", ")}.`;
   }
 
   if (errorCode === "DBInstanceNotFound") {
@@ -345,18 +376,32 @@ function formatAwsErrorMessage(error: any): string {
 export class AwsFunctions {
   @DaemoFunction({
     description:
-      "Lists file keys in the agent’s S3 bucket (daemo-agent-s3-darrell). Optionally provide a prefix like 'logs/' and a limit.",
+      "Lists the S3 buckets this agent is allowed to access (configured via ALLOWED_BUCKETS).",
+    inputSchema: emptyInputSchema,
+    outputSchema: listBucketsOutputSchema,
+  })
+  async listAllowedBuckets(): Promise<z.infer<typeof listBucketsOutputSchema>> {
+    return {
+      count: allowedBuckets.length,
+      buckets: allowedBuckets,
+    };
+  }
+
+  @DaemoFunction({
+    description:
+      "Lists file keys in an allowed S3 bucket. Optionally provide bucket, prefix like 'logs/', and a limit.",
     inputSchema: listFilesInputSchema,
     outputSchema: listFilesOutputSchema,
   })
   async listFiles(
     args: z.infer<typeof listFilesInputSchema>
   ): Promise<z.infer<typeof listFilesOutputSchema>> {
-    const { prefix, limit } = args;
+    const { bucket: requestedBucket, prefix, limit } = args;
 
     try {
-      const keys = await listS3Objects(allowedBucketName, prefix, limit);
-      return { bucket: allowedBucketName, prefix, count: keys.length, keys };
+      const bucket = resolveBucket(requestedBucket);
+      const keys = await listS3Objects(bucket, prefix, limit);
+      return { bucket, prefix, count: keys.length, keys };
     } catch (error: any) {
       throw new Error(formatAwsErrorMessage(error));
     }
@@ -364,17 +409,18 @@ export class AwsFunctions {
 
   @DaemoFunction({
     description:
-      "Reads a small text file (<=1MB) from the agent’s S3 bucket by key.",
+      "Reads a small text file (<=1MB) from an allowed S3 bucket by key.",
     inputSchema: readTextInputSchema,
     outputSchema: readTextOutputSchema,
   })
   async readTextFile(
     args: z.infer<typeof readTextInputSchema>
   ): Promise<z.infer<typeof readTextOutputSchema>> {
-    const { key } = args;
+    const { bucket: requestedBucket, key } = args;
 
     try {
-      return await getTextObject(allowedBucketName, key);
+      const bucket = resolveBucket(requestedBucket);
+      return await getTextObject(bucket, key);
     } catch (error: any) {
       throw new Error(formatAwsErrorMessage(error));
     }
@@ -382,18 +428,19 @@ export class AwsFunctions {
 
   @DaemoFunction({
     description:
-      "Writes a small text file (<=1MB) to the agent’s S3 bucket at the given key.",
+      "Writes a small text file (<=1MB) to an allowed S3 bucket at the given key.",
     inputSchema: writeTextInputSchema,
     outputSchema: writeTextOutputSchema,
   })
   async writeTextFile(
     args: z.infer<typeof writeTextInputSchema>
   ): Promise<z.infer<typeof writeTextOutputSchema>> {
-    const { key, content, contentType } = args;
+    const { bucket: requestedBucket, key, content, contentType } = args;
 
     try {
-      const etag = await putTextObject(allowedBucketName, key, content, contentType);
-      return { bucket: allowedBucketName, key, etag };
+      const bucket = resolveBucket(requestedBucket);
+      const etag = await putTextObject(bucket, key, content, contentType);
+      return { bucket, key, etag };
     } catch (error: any) {
       throw new Error(formatAwsErrorMessage(error));
     }
@@ -401,17 +448,18 @@ export class AwsFunctions {
 
   @DaemoFunction({
     description:
-      "Creates a temporary download link (presigned URL) for a file in the agent’s S3 bucket.",
+      "Creates a temporary download link (presigned URL) for a file in an allowed S3 bucket.",
     inputSchema: presignDownloadInputSchema,
     outputSchema: presignDownloadOutputSchema,
   })
   async presignDownload(
     args: z.infer<typeof presignDownloadInputSchema>
   ): Promise<z.infer<typeof presignDownloadOutputSchema>> {
-    const { key, expiresInSeconds } = args;
+    const { bucket: requestedBucket, key, expiresInSeconds } = args;
 
     try {
-      const url = await createPresignedGetUrl(allowedBucketName, key, expiresInSeconds);
+      const bucket = resolveBucket(requestedBucket);
+      const url = await createPresignedGetUrl(bucket, key, expiresInSeconds);
       return { url, expiresInSeconds };
     } catch (error: any) {
       throw new Error(formatAwsErrorMessage(error));
@@ -420,22 +468,23 @@ export class AwsFunctions {
 
   @DaemoFunction({
     description:
-      "Finds older files in the agent’s S3 bucket using LastModified, with optional prefix, age, and size filters.",
+      "Finds older files in an allowed S3 bucket using LastModified, with optional bucket, prefix, age, and size filters.",
     inputSchema: findOldFilesInputSchema,
     outputSchema: findOldFilesOutputSchema,
   })
   async findOldFiles(
     args: z.infer<typeof findOldFilesInputSchema>
   ): Promise<z.infer<typeof findOldFilesOutputSchema>> {
-    const { prefix, olderThanDays, minSizeBytes, maxResults } = args;
+    const { bucket: requestedBucket, prefix, olderThanDays, minSizeBytes, maxResults } = args;
 
     // Internal safety caps (keeps the tool conversational and fast).
     const pageSize = 250;
     const maxTotalObjects = 5000;
 
     try {
+      const bucket = resolveBucket(requestedBucket);
       const result = await findOldObjects(
-        allowedBucketName,
+        bucket,
         prefix,
         olderThanDays,
         minSizeBytes,
@@ -447,7 +496,7 @@ export class AwsFunctions {
       const totalBytes = objects.reduce((sum, item) => sum + item.size, 0);
 
       return {
-        bucket: allowedBucketName,
+        bucket,
         prefix,
         olderThanDays,
         scanned: result.scanned,
