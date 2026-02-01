@@ -30,14 +30,16 @@ import {
 import { queryMysqlRds, type rdsQueryResult } from "./awsRdsQuery.js";
 import { getRdsCpuUtilization, type rdsCpuMetrics } from "./awsRdsMetrics.js";
 
-const defaultBucketName = "daemo-agent-s3-darrell";
-const allowedBuckets = (process.env.ALLOWED_BUCKETS ?? defaultBucketName)
+const allowedBuckets = (process.env.ALLOWED_BUCKETS ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter((value) => value.length > 0);
 
 function resolveBucket(requestedBucket?: string): string {
-  const bucket = (requestedBucket ?? allowedBuckets[0] ?? defaultBucketName).trim();
+  if (allowedBuckets.length === 0) {
+    throw new Error("MissingAllowedBuckets");
+  }
+  const bucket = (requestedBucket ?? allowedBuckets[0]).trim();
   if (!allowedBuckets.includes(bucket)) {
     throw new Error(`BucketNotAllowed:${bucket}`);
   }
@@ -356,6 +358,10 @@ function formatAwsErrorMessage(error: any): string {
 
   if (errorCode === "Missing RDS_PASSWORD") {
     return "Missing RDS_PASSWORD environment variable.";
+  }
+
+  if (errorCode === "MissingAllowedBuckets") {
+    return "Missing ALLOWED_BUCKETS environment variable. Set it to a comma-separated list of bucket names.";
   }
 
   if (errorCode === "PermanentRedirect" || httpStatusCode === 301) {
