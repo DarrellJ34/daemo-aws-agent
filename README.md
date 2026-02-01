@@ -18,7 +18,8 @@ What This Repo Does
 - Runs a Daemo hosted tool service so your agent can call AWS tools (S3, EC2, RDS)  
 - Optionally serves a local browser chat UI (HTML/CSS/JS)  
 - Exposes a local HTTP endpoint your UI can use to talk to the agent  
-- In short: it’s an AI-powered AWS helper you can run locally  
+- In short: it’s an AI-powered AWS helper you can run locally
+- More capabilities will be coming
 
 Capabilities
 
