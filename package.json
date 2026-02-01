@@ -7,6 +7,8 @@
   "scripts": {
     "start": "tsx index.ts",
     "dev": "tsx watch index.ts",
+    "web": "tsx src/web.ts",
+    "web:dev": "tsx watch src/web.ts",
     "typecheck": "tsc --noEmit",
     "test": "echo \"No tests specified\""
   },
