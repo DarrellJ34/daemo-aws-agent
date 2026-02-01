@@ -58,6 +58,7 @@ Core Config
 DAEMO_AGENT_API_KEY="your_daemo_agent_api_key"
 DAEMO_GATEWAY_URL="http://localhost:50052"
 AWS_REGION="us-east-1" (can be a different region)
+ALLOWED_BUCKETS="s3_bucket_name"
 ```
 
 RDS Config (only needed if using RDS query tool)
