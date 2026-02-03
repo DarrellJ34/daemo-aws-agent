@@ -203,7 +203,7 @@ export async function findOldObjects(
     });
   }
 
-  // Biggest first so the agent surfaces the most impactful candidates.
+  // Sort biggest first so cleanup candidates are more useful.
   objects.sort((a, b) => b.size - a.size);
 
   return { objects, scanned: items.length, truncated };

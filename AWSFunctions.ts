@@ -46,9 +46,7 @@ function resolveBucket(requestedBucket?: string): string {
   return bucket;
 }
 
-// ----------------------------
-// S3 Schemas
-// ----------------------------
+// S3 schemas
 
 const listFilesInputSchema = z.object({
   bucket: z.string().optional(),
@@ -136,9 +134,7 @@ const findOldFilesOutputSchema = z.object({
   objects: z.array(oldObjectSchema),
 });
 
-// ----------------------------
-// EC2 Schemas
-// ----------------------------
+// EC2 schemas
 
 const listEc2InstancesInputSchema = z.object({
   maxInstances: z.number().int().min(1).max(200).optional().default(50),
@@ -191,9 +187,7 @@ const detectIdleEc2OutputSchema = z.object({
   candidates: z.array(idleInstanceSchema),
 });
 
-// ----------------------------
-// RDS Schemas
-// ----------------------------
+// RDS schemas
 
 const listRdsInstancesInputSchema = z.object({
   maxInstances: z.number().int().min(1).max(100).optional().default(50),
@@ -285,9 +279,7 @@ const queryRdsOutputSchema = z.object({
   rows: z.array(z.record(z.any())),
 });
 
-// ----------------------------
-// Friendly Error Messages
-// ----------------------------
+// Friendly error messages
 
 function formatAwsErrorMessage(error: any): string {
   const errorCode = error?.name || error?.Code || error?.code;
@@ -375,9 +367,7 @@ function formatAwsErrorMessage(error: any): string {
   return `AWS error: ${errorCode ?? "UnknownError"}`;
 }
 
-// ----------------------------
-// Daemo Tools
-// ----------------------------
+// Daemo tools
 
 export class AwsFunctions {
   @DaemoFunction({
@@ -483,7 +473,7 @@ export class AwsFunctions {
   ): Promise<z.infer<typeof findOldFilesOutputSchema>> {
     const { bucket: requestedBucket, prefix, olderThanDays, minSizeBytes, maxResults } = args;
 
-    // Internal safety caps (keeps the tool conversational and fast).
+    // Keep these caps so results stay fast and readable.
     const pageSize = 250;
     const maxTotalObjects = 5000;
 
@@ -546,7 +536,7 @@ export class AwsFunctions {
   ): Promise<z.infer<typeof detectIdleEc2OutputSchema>> {
     const { lookbackDays, maxInstances } = args;
 
-    // Keep these internal to reduce LLM confusion during conversation.
+    // These are internal tuning knobs for the idle detector.
     const periodSeconds = 3600;
     const cpuThresholdPct = 2;
     const netTotalThresholdBytes = 50 * 1024 * 1024;
@@ -574,7 +564,7 @@ export class AwsFunctions {
         )
       );
 
-      // Sort: idle first, then higher confidence, then lower CPU, then lower network.
+      // Sort idle first, then confidence, then CPU, then network.
       candidates.sort((a, b) => {
         if (a.idle !== b.idle) return a.idle ? -1 : 1;
 

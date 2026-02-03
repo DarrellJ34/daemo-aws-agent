@@ -31,7 +31,7 @@ export type ec2InstanceSummary = {
 };
 
 export type idleMetrics = {
-  cpuAvg?: number; // percent
+  cpuAvg?: number; // CPU percent
   netInBytesTotal?: number;
   netOutBytesTotal?: number;
 
@@ -66,10 +66,7 @@ function toIsoString(date?: Date): string | undefined {
   return date ? date.toISOString() : undefined;
 }
 
-/**
- * This is the "simple lookup" function.
- * It returns instance basics without CloudWatch metrics or idle classification.
- */
+// Basic lookup without CloudWatch metrics or idle classification.
 export async function listEc2InstancesSimple(
   maxInstances: number,
   instanceStates: string[] = ["running"]
@@ -77,10 +74,7 @@ export async function listEc2InstancesSimple(
   return await listEc2InstancesCapped(maxInstances, instanceStates);
 }
 
-/**
- * Shared internal helper: describes instances with a state filter, capped to maxInstances.
- * Uses pagination safely.
- */
+// Shared helper with state filter and safe pagination.
 async function listEc2InstancesCapped(
   maxInstances: number,
   instanceStates: string[]
@@ -91,7 +85,7 @@ async function listEc2InstancesCapped(
   while (instances.length < maxInstances) {
     const remaining = maxInstances - instances.length;
 
-    // AWS DescribeInstances MaxResults is 5..1000
+    // AWS expects MaxResults between 5 and 1000.
     const maxResults = Math.min(1000, Math.max(5, remaining));
 
     const resp: DescribeInstancesCommandOutput = await ec2Client.send(
@@ -129,9 +123,7 @@ async function listEc2InstancesCapped(
   return instances;
 }
 
-// -------------------------------
-// IDLE DETECTION (existing logic)
-// -------------------------------
+// Idle detection helpers
 
 export async function listRunningInstancesCapped(
   maxInstances: number
@@ -219,7 +211,7 @@ export async function getIdleMetricsForInstances(
     });
   });
 
-  // CloudWatch GetMetricData supports up to 500 queries per request.
+  // CloudWatch GetMetricData allows up to 500 queries per request.
   const maxQueriesPerCall = 450;
   const queryChunks: MetricDataQuery[][] = [];
   for (let i = 0; i < metricQueries.length; i += maxQueriesPerCall) {

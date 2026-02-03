@@ -69,7 +69,7 @@ async function serveStatic(reqUrlPath: string, res: http.ServerResponse) {
   const urlPath = reqUrlPath === "/" ? "/index.html" : reqUrlPath;
   const decoded = decodeURIComponent(urlPath);
 
-  // Prevent directory traversal
+  // Block directory traversal.
   const resolved = path.resolve(publicDir, "." + decoded);
   if (!resolved.startsWith(publicDir)) {
     writeText(res, 400, "Bad path");
@@ -93,7 +93,7 @@ async function main() {
   const agentApiKey = process.env.DAEMO_AGENT_API_KEY;
   if (!agentApiKey) throw new Error("Missing DAEMO_AGENT_API_KEY");
 
-  // 1) Host the tool service (so the remote agent can call your AWS tools)
+  // Start the hosted tool service so the agent can call your AWS tools.
   const sessionData = buildSessionData();
   const connection = new DaemoHostedConnection(
     {
@@ -104,7 +104,7 @@ async function main() {
   );
   await connection.start();
 
-  // 2) Provide an HTTP API for your browser UI to "chat" with the agent
+  // Expose an HTTP API for the browser chat UI.
   const client = new DaemoClient({ agentApiKey });
 
   const port = process.env.PORT ? Number(process.env.PORT) : 8787;
