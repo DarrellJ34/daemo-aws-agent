@@ -20,6 +20,7 @@ What This Repo Does
 - Exposes a local HTTP endpoint your UI can use to talk to the agent  
 - In short: it’s an AI-powered AWS helper you can run locally
 - More capabilities will be coming
+- When making updates, make sure you start a new chat to launch a new version of the agent
 
 Capabilities
 
