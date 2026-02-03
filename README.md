@@ -115,7 +115,7 @@ Safety Notes
 - The browser UI never sees DAEMO_AGENT_API_KEY  
 - API key stays server-side  
 - RDS queries are read-only by design  
-- S3 access is locked to a single bucket in code (see AWSFunctions.ts)  
+- S3 access is locked to ALLOWED_BUCKETS only. Policies for each must allow access as well.  
 
 Project Layout
 
