@@ -66,7 +66,7 @@ function toIsoString(date?: Date): string | undefined {
   return date ? date.toISOString() : undefined;
 }
 
-// Basic lookup without CloudWatch metrics or idle classification.
+// Basic lookup without CloudWatch metrics or idle classification
 export async function listEc2InstancesSimple(
   maxInstances: number,
   instanceStates: string[] = ["running"]
@@ -74,7 +74,7 @@ export async function listEc2InstancesSimple(
   return await listEc2InstancesCapped(maxInstances, instanceStates);
 }
 
-// Shared helper with state filter and safe pagination.
+// Shared helper with state filter and safe pagination
 async function listEc2InstancesCapped(
   maxInstances: number,
   instanceStates: string[]
@@ -85,7 +85,7 @@ async function listEc2InstancesCapped(
   while (instances.length < maxInstances) {
     const remaining = maxInstances - instances.length;
 
-    // AWS expects MaxResults between 5 and 1000.
+    // AWS expects MaxResults between 5 and 1000
     const maxResults = Math.min(1000, Math.max(5, remaining));
 
     const resp: DescribeInstancesCommandOutput = await ec2Client.send(
@@ -211,7 +211,7 @@ export async function getIdleMetricsForInstances(
     });
   });
 
-  // CloudWatch GetMetricData allows up to 500 queries per request.
+  // CloudWatch GetMetricData allows up to 500 queries per request
   const maxQueriesPerCall = 450;
   const queryChunks: MetricDataQuery[][] = [];
   for (let i = 0; i < metricQueries.length; i += maxQueriesPerCall) {

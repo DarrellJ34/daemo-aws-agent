@@ -279,7 +279,7 @@ const queryRdsOutputSchema = z.object({
   rows: z.array(z.record(z.any())),
 });
 
-// Friendly error messages
+// error messages
 
 function formatAwsErrorMessage(error: any): string {
   const errorCode = error?.name || error?.Code || error?.code;
@@ -473,7 +473,7 @@ export class AwsFunctions {
   ): Promise<z.infer<typeof findOldFilesOutputSchema>> {
     const { bucket: requestedBucket, prefix, olderThanDays, minSizeBytes, maxResults } = args;
 
-    // Keep these caps so results stay fast and readable.
+    // Keep these caps so results stay fast and readable
     const pageSize = 250;
     const maxTotalObjects = 5000;
 
@@ -536,7 +536,7 @@ export class AwsFunctions {
   ): Promise<z.infer<typeof detectIdleEc2OutputSchema>> {
     const { lookbackDays, maxInstances } = args;
 
-    // These are internal tuning knobs for the idle detector.
+    // These are for tuning the idle detector. Can adjust the settings
     const periodSeconds = 3600;
     const cpuThresholdPct = 2;
     const netTotalThresholdBytes = 50 * 1024 * 1024;
@@ -564,7 +564,7 @@ export class AwsFunctions {
         )
       );
 
-      // Sort idle first, then confidence, then CPU, then network.
+      // Sort idle first, then confidence, then CPU, then network
       candidates.sort((a, b) => {
         if (a.idle !== b.idle) return a.idle ? -1 : 1;
 

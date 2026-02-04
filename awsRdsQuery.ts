@@ -1,10 +1,10 @@
-import mysql from "mysql2/promise";
+import mysql from "mysql2/promise"; // import can be for different RDS DB types
 
-// RDS is the MySQL database server in AWS.
-// Connect using host, username, password, and port.
-// You can also use these credentials in a SQL client.
+// RDS is the MySQL database server in AWS
+// Connect using host, username, password, and port
+// You can also use these credentials in a SQL client
 
-const defaultPort = 3306; // Default MySQL port in AWS
+const defaultPort = 3306; // default MySQL port in AWS
 
 function getRequiredEnv(name: string): string {
   const value = process.env[name];

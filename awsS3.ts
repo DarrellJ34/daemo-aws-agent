@@ -4,6 +4,7 @@ import {
   type ListObjectsV2CommandOutput,
   PutObjectCommand,
   GetObjectCommand,
+  GetBucketLocationCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -13,7 +14,52 @@ function getRegion(): string {
   return region;
 }
 
-const s3Client = new S3Client({ region: getRegion() });
+const s3Clients = new Map<string, S3Client>();
+const bucketRegionCache = new Map<string, string>();
+
+function getS3Client(region: string): S3Client {
+  const cached = s3Clients.get(region);
+  if (cached) return cached;
+
+  const client = new S3Client({ region });
+  s3Clients.set(region, client);
+  return client;
+}
+
+function normalizeBucketRegion(region: string | undefined | null): string {
+  if (!region) return "us-east-1";
+  if (region === "EU") return "eu-west-1";
+  return region;
+}
+
+async function getS3ClientForBucket(bucket: string): Promise<S3Client> {
+  const cachedRegion = bucketRegionCache.get(bucket);
+  if (cachedRegion) return getS3Client(cachedRegion);
+
+  const defaultRegion = getRegion();
+  const defaultClient = getS3Client(defaultRegion);
+
+  try {
+    const response = await defaultClient.send(
+      new GetBucketLocationCommand({ Bucket: bucket })
+    );
+
+    const resolvedRegion = normalizeBucketRegion(response.LocationConstraint);
+    bucketRegionCache.set(bucket, resolvedRegion);
+    return getS3Client(resolvedRegion);
+  } catch (error: any) {
+    const headerRegion =
+      error?.$metadata?.httpHeaders?.["x-amz-bucket-region"] ??
+      error?.$response?.headers?.["x-amz-bucket-region"];
+    if (headerRegion) {
+      const resolvedRegion = normalizeBucketRegion(headerRegion);
+      bucketRegionCache.set(bucket, resolvedRegion);
+      return getS3Client(resolvedRegion);
+    }
+
+    return getS3Client(defaultRegion);
+  }
+}
 
 
 export type S3ObjectMeta = {
@@ -59,6 +105,7 @@ export async function listS3Objects(
   prefix: string,
   maxKeys: number
 ): Promise<string[]> {
+  const s3Client = await getS3ClientForBucket(bucket);
   const command = new ListObjectsV2Command({
     Bucket: bucket,
     Prefix: prefix || undefined,
@@ -79,6 +126,7 @@ export async function createPresignedGetUrl(
   key: string,
   expiresInSeconds: number
 ): Promise<string> {
+  const s3Client = await getS3ClientForBucket(bucket);
   const command = new GetObjectCommand({ Bucket: bucket, Key: key });
   return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
 }
@@ -87,13 +135,14 @@ export async function putTextObject(
   bucket: string,
   key: string,
   content: string,
-  contentType: string
+  contentType?: string
 ): Promise<string | undefined> {
+  const s3Client = await getS3ClientForBucket(bucket);
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: key,
     Body: content,
-    ContentType: contentType,
+    ContentType: contentType && contentType.trim().length > 0 ? contentType : undefined,
   });
 
   const response = await s3Client.send(command);
@@ -104,6 +153,7 @@ export async function getTextObject(
   bucket: string,
   key: string
 ): Promise<TextObject> {
+  const s3Client = await getS3ClientForBucket(bucket);
   const command = new GetObjectCommand({ Bucket: bucket, Key: key });
   const response = await s3Client.send(command);
 
@@ -128,6 +178,7 @@ export async function listS3ObjectsWithMetaCapped(
   pageSize: number,
   maxTotalObjects: number
 ): Promise<{ items: S3ObjectMeta[]; truncated: boolean }> {
+  const s3Client = await getS3ClientForBucket(bucket);
   const items: S3ObjectMeta[] = [];
   let continuationToken: string | undefined = undefined;
 
@@ -203,7 +254,7 @@ export async function findOldObjects(
     });
   }
 
-  // Sort biggest first so cleanup candidates are more useful.
+  // Sort biggest first so cleanup candidates are more useful
   objects.sort((a, b) => b.size - a.size);
 
   return { objects, scanned: items.length, truncated };
