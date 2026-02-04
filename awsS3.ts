@@ -106,19 +106,32 @@ export async function listS3Objects(
   maxKeys: number
 ): Promise<string[]> {
   const s3Client = await getS3ClientForBucket(bucket);
-  const command = new ListObjectsV2Command({
-    Bucket: bucket,
-    Prefix: prefix || undefined,
-    MaxKeys: maxKeys,
-  });
+  const keys: string[] = [];
+  let continuationToken: string | undefined = undefined;
 
-  const response = (await s3Client.send(command)) as ListObjectsV2CommandOutput;
+  while (keys.length < maxKeys) {
+    const remaining = maxKeys - keys.length;
+    const command = new ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: prefix || undefined,
+      MaxKeys: remaining,
+      ContinuationToken: continuationToken,
+    });
 
-  const keys = (response.Contents ?? [])
-    .map((item) => item.Key)
-    .filter((key): key is string => typeof key === "string");
+    const response = (await s3Client.send(command)) as ListObjectsV2CommandOutput;
 
-  return keys;
+    const pageKeys = (response.Contents ?? [])
+      .map((item) => item.Key)
+      .filter((key): key is string => typeof key === "string");
+
+    keys.push(...pageKeys);
+
+    if (!response.IsTruncated) break;
+    continuationToken = response.NextContinuationToken;
+    if (!continuationToken) break;
+  }
+
+  return keys.slice(0, maxKeys);
 }
 
 export async function createPresignedGetUrl(

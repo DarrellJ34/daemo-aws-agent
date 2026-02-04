@@ -51,7 +51,7 @@ function resolveBucket(requestedBucket?: string): string {
 const listFilesInputSchema = z.object({
   bucket: z.string().optional(),
   prefix: z.string().optional().default(""),
-  limit: z.number().int().min(1).max(1000).optional().default(20),
+  limit: z.number().int().min(1).max(1000).optional().default(50),
 });
 
 const listFilesOutputSchema = z.object({
